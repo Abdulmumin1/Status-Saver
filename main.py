@@ -3,11 +3,11 @@ from kivymd.app import MDApp
 from kivymd.uix.snackbar import Snackbar
 from kivy.core.window import Window
 from kivymd.uix.button import MDFlatButton
-from kivymd.uix.card import MDCard
-from kivymd.uix.boxlayout import MDBoxLayout
+# from kivymd.uix.card import MDCard
+# from kivymd.uix.boxlayout import MDBoxLayout
 from kivy.uix.scrollview import ScrollView
-from kivymd.uix.filemanager import MDFileManager
-from kivymd.uix.label import MDLabel, MDIcon
+# from kivymd.uix.filemanager import MDFileManager
+# from kivymd.uix.label import MDLabel, MDIcon
 from kivymd.toast import toast
 from kivymd.uix.bottomsheet import MDGridBottomSheet, MDListBottomSheet
 from kivymd.uix.imagelist import SmartTileWithLabel
@@ -24,6 +24,7 @@ import cv2
 
 # from db_server import load_files_from_server, download_file_content, delete_record, upload_file_content,search,create_cat
 
+from utils import check_for_thumbnail
 KV = '''
 MDScreen:
     Screen:
@@ -34,7 +35,7 @@ MDScreen:
             MDToolbar:
                 md_bg_color:app.theme_cls.bg_dark
                 title:"Status Saver"
-                right_action_items:[["merge", lambda x:app.show_merge_dialog()], ["refresh", lambda x:print('refresh')]]
+                right_action_items:[["merge", lambda x:app.show_merge_dialog()], ["refresh", lambda x:app.refresh()]]
 
             ScrollView:
                 MDList:
@@ -56,6 +57,7 @@ MDScreen:
 
 file_clicked = None
 merge_list = set()
+ongoing_merge = False
 
 
 class ImageScreen(Screen):
@@ -82,8 +84,11 @@ class Files(SmartTileWithLabel):
         # self.file_id = datas['pk']
         self.file_name, self.file_extension = os.path.splitext(datas)
         label_text = self.file_name if len(
-            self.file_name) < 21 else self.file_name[:21]+'...'
-        self.text = label_text
+            self.file_name) < 31 else self.file_name[:31]+'...'
+        duration = "29:00"
+        self.text = f"[size=18][color=#ffffff]{label_text}[/color][/size]"
+        if duration:
+            self.text += "\n[size=14]{}[/size]".format(duration)
 
         self.show_bottom_sheet = None
         # icon = MDIcon(icon='file' if data_type ==
@@ -167,9 +172,16 @@ class Main(MDApp):
     dialog = None
 
     def show_merge_dialog(self):
+        # if there is an ongoing merge reject other merge
+        if ongoing_merge:
+            self.bar('There is an ongoing merge. Please wait')
+            return
+
+        # if the merge list is empty don't show dialog
         if not merge_list:
             self.bar('Please select videos to merge')
             return
+
         if not self.dialog:
             # content = self.merge_contents()
             self.dialog = MDDialog(
@@ -225,21 +237,32 @@ class Main(MDApp):
             global merge_list
             file, ext = os.path.splitext(file_clicked)
             if ext not in ['.mp4', '.avi', '.webm']:
-                self.bar('Please select a video file')
+                toast('Please select a video file')
                 return
             merge_list.add(file_clicked) if len(
                 merge_list) < 3 else toast('max reached')
 
     def merge_action(self):
+        if len(merge_list) < 2:
+            toast('requires two or more videos')
+            return
         files = [os.path.join(self.path, f) for f in merge_list]
-
-        self.close_dial('event')
-        self.bar('Merging')
-        from utils import merge_videos
-        thread = threading.Thread(target=merge_videos, args=(
-            files, 'VID_'+str(datetime.now())+'.mp4', "compose", self.bar))
-        # merge_videos(files, )
+        thread = threading.Thread(target=self.merge_thread, args=(files,))
         thread.start()
+        self.close_dial('event')
+        self.bar('merging in progress..')
+        global ongoing_merge
+        ongoing_merge = True
+
+    def merge_thread(self, files):
+
+        from utils import merge_videos
+        merge_videos(files, 'VID_'+str(datetime.now()) +
+                     '.mp4', "compose", self.bar)
+        # set the flag for ongoing merge to False to allow other merges
+        global ongoing_merge
+        ongoing_merge = False
+        # merge_videos(files, )
 
         # elif args[0] == 'deleted':
         #     self.show_alert_dialog()
@@ -307,7 +330,12 @@ class Main(MDApp):
 
             if os.path.isfile(self.path+'/'+file):
 
-                thmb = self.create_thumbnail(file)
+                # check if thumbnail already created
+                avail = check_for_thumbnail(file)
+                if not avail:
+                    thmb = self.create_thumbnail(file)
+                else:
+                    thmb = file + "_thumbnail.jpg"
                 if not thmb:
                     continue
                 file_widget = Files(file, thmb)
@@ -316,16 +344,22 @@ class Main(MDApp):
     def create_thumbnail(self, file):
         _, ext = os.path.splitext(file)
         if ext in ['.mp4', '.webm', '.avi']:
-            vidcap = cv2.VideoCapture(self.path+'/'+file)
+            vidcap = cv2.VideoCapture(os.path.join(self.path, file))
             success, image = vidcap.read()
             thmb = file + "_thumbnail.jpg"
             cv2.imwrite(thmb, image)
+            fps = vidcap.get(cv2.CAP_PROP_FPS)
+            frame_count = vidcap.get(cv2.CAP_PROP_FRAME_COUNT)
+            duration = frame_count/fps
+            # return duration and thumbnail for video
+            print(duration)
             return thmb
         elif ext in ['.jpg', '.JPEG', '.JPG', '.png']:
-            thmb = file + "_thumbnail"+ext
-            with open(thmb, 'wb') as new:
-                with open(self.path+'/'+file, 'rb') as old:
-                    new.write(old.read())
+            # thmb = file + "_thumbnail"+ext
+            # with open(thmb, 'wb') as new:
+            #     with open(os.path.join(self.path, file), 'rb') as old:
+            #         new.write(old.read())
+            thmb = os.path.join(self.path, file)
             return thmb
 
         return False
@@ -341,6 +375,10 @@ class Main(MDApp):
     #             self.root.ids.box.add_widget(but)
     #     else:
     #         self.bar('error connecting with server')
+    def refresh(self):
+        self.root.ids.box.clear_widgets()
+        self.on_start()
+
     def load_ui(self):
         time.sleep(1)
         self.load_files()
@@ -350,7 +388,6 @@ class Main(MDApp):
         thread.start()
 
     def build(self):
-
         self.theme_cls.theme_style = 'Dark'
         return Builder.load_string(KV)
 
