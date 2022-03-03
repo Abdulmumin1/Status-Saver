@@ -15,7 +15,9 @@ from kivymd.uix.dialog import MDDialog
 from kivy.properties import StringProperty
 from kivymd.uix.list import OneLineAvatarListItem
 from kivy.uix.screenmanager import Screen
-import random
+from kivy.utils import platform
+from datetime import datetime
+import time
 import threading
 import os
 import cv2
@@ -27,7 +29,7 @@ MDScreen:
     Screen:
         id:main_screen
         MDBoxLayout:
-            
+
             orientation:"vertical"
             MDToolbar:
                 md_bg_color:app.theme_cls.bg_dark
@@ -53,7 +55,7 @@ MDScreen:
 
 
 file_clicked = None
-merge_list = []
+merge_list = set()
 
 
 class ImageScreen(Screen):
@@ -80,7 +82,7 @@ class Files(SmartTileWithLabel):
         # self.file_id = datas['pk']
         self.file_name, self.file_extension = os.path.splitext(datas)
         label_text = self.file_name if len(
-            self.file_name) < 11 else self.file_name[:11]+'...'
+            self.file_name) < 21 else self.file_name[:21]+'...'
         self.text = label_text
 
         self.show_bottom_sheet = None
@@ -134,6 +136,13 @@ class Files(SmartTileWithLabel):
     #         self.dialog.dismiss()
     #         self.bar('error connecting with server')
 
+
+class Main(MDApp):
+    # data = {
+    # 'Upload':'upload',
+    # 'Create folder':'folder',
+    # }
+    # dialog = None
     def bar(self, text):
         snackbar = Snackbar(
             text=text,
@@ -142,31 +151,14 @@ class Files(SmartTileWithLabel):
         snackbar.size_hint_x = (
             Window.width - (snackbar.snackbar_x * 2)
         ) / Window.width
+        snackbar.buttons = [
+            MDFlatButton(
+                text="CANCEL",
+                text_color=(1, 1, 1, 1),
+                on_release=snackbar.dismiss,
+            ),
+        ]
         snackbar.open()
-
-
-class Main(MDApp):
-    # data = {
-    # 'Upload':'upload',
-    # 'Create folder':'folder',
-    # }
-    # dialog = None
-    # def bar(self, text):
-    #     snackbar = Snackbar(
-    #     text=text,
-    #     snackbar_x="10dp",
-    #     snackbar_y="10dp",)
-    #     snackbar.size_hint_x = (
-    #     Window.width - (snackbar.snackbar_x * 2)
-    #     ) / Window.width
-    #     snackbar.buttons = [
-    #         MDFlatButton(
-    #         text="CANCEL",
-    #         text_color=(1, 1, 1, 1),
-    #         on_release=snackbar.dismiss,
-    #         ),
-    #     ]
-    #     snackbar.open()
     # def calls(self, but):
     #     if but.icon == 'upload':
     #         self.fileManager()
@@ -175,6 +167,9 @@ class Main(MDApp):
     dialog = None
 
     def show_merge_dialog(self):
+        if not merge_list:
+            self.bar('Please select videos to merge')
+            return
         if not self.dialog:
             # content = self.merge_contents()
             self.dialog = MDDialog(
@@ -187,7 +182,7 @@ class Main(MDApp):
                         text="CANCEL", text_color=self.theme_cls.primary_color, on_release=self.close_dial
                     ),
                     MDFlatButton(
-                        text="OK", text_color=self.theme_cls.primary_color, on_release=lambda x:print('merging============')
+                        text="OK", text_color=self.theme_cls.primary_color, on_release=lambda x:self.merge_action()
                     ),
                 ],
             )
@@ -228,7 +223,24 @@ class Main(MDApp):
             file_clicked = None
         elif args[0] == 'merge':
             global merge_list
-            merge_list.append(file_clicked)
+            file, ext = os.path.splitext(file_clicked)
+            if ext not in ['.mp4', '.avi', '.webm']:
+                self.bar('Please select a video file')
+                return
+            merge_list.add(file_clicked) if len(
+                merge_list) < 3 else toast('max reached')
+
+    def merge_action(self):
+        files = [os.path.join(self.path, f) for f in merge_list]
+
+        self.close_dial('event')
+        self.bar('Merging')
+        from utils import merge_videos
+        thread = threading.Thread(target=merge_videos, args=(
+            files, 'VID_'+str(datetime.now())+'.mp4', "compose", self.bar))
+        # merge_videos(files, )
+        thread.start()
+
         # elif args[0] == 'deleted':
         #     self.show_alert_dialog()
 
@@ -286,31 +298,39 @@ class Main(MDApp):
     #         self.bar('error connecting with server')
     #     self.dialog.dismiss()
 
-    def build(self):
-        self.theme_cls.theme_style = 'Dark'
-        return Builder.load_string(KV)
-
     def load_files(self):
-        self.path = '/home/famira/Music/dyk'
+        self.path = '/home/famira/Music/test_datas'
+        if platform == "android":
+            pass
         file_path = os.listdir(self.path)
         for file in file_path:
 
             if os.path.isfile(self.path+'/'+file):
-                _, ext = os.path.splitext(file)
-                if ext in ['.mp4', '.webm', '.avi']:
 
-                    vidcap = cv2.VideoCapture(self.path+'/'+file)
-                    success, image = vidcap.read()
-                    thmb = file + "_thumbnail.jpg"
-                    cv2.imwrite(thmb, image)
-                elif ext in ['.jpg', '.JPEG', '.JPG', '.png']:
-                    thmb = file + "_thumbnail.jpg"
-                    cv2.imwrite(thmb, image)
-                else:
+                thmb = self.create_thumbnail(file)
+                if not thmb:
                     continue
                 file_widget = Files(file, thmb)
                 self.root.ids.box.add_widget(file_widget)
-                # await self.load_files()
+
+    def create_thumbnail(self, file):
+        _, ext = os.path.splitext(file)
+        if ext in ['.mp4', '.webm', '.avi']:
+            vidcap = cv2.VideoCapture(self.path+'/'+file)
+            success, image = vidcap.read()
+            thmb = file + "_thumbnail.jpg"
+            cv2.imwrite(thmb, image)
+            return thmb
+        elif ext in ['.jpg', '.JPEG', '.JPG', '.png']:
+            thmb = file + "_thumbnail"+ext
+            with open(thmb, 'wb') as new:
+                with open(self.path+'/'+file, 'rb') as old:
+                    new.write(old.read())
+            return thmb
+
+        return False
+
+        # await self.load_files()
 
     # def load_files(self,e):
     #     files = load_files_from_server()
@@ -321,10 +341,21 @@ class Main(MDApp):
     #             self.root.ids.box.add_widget(but)
     #     else:
     #         self.bar('error connecting with server')
-
-    def on_start(self):
+    def load_ui(self):
+        time.sleep(1)
         self.load_files()
 
+    def on_start(self):
+        thread = threading.Thread(target=self.load_ui)
+        thread.start()
 
+    def build(self):
+
+        self.theme_cls.theme_style = 'Dark'
+        return Builder.load_string(KV)
+
+
+Window.size = (400, 1280)
 app = Main()
+# asyncio.run(app.on_start())
 app.run()
