@@ -24,7 +24,7 @@ import cv2
 
 # from db_server import load_files_from_server, download_file_content, delete_record, upload_file_content,search,create_cat
 
-from utils import check_for_thumbnail
+from utils import check_for_thumbnail, verify_video, create_merge_actions
 KV = '''
 MDScreen:
     Screen:
@@ -58,6 +58,7 @@ MDScreen:
 file_clicked = None
 merge_list = set()
 ongoing_merge = False
+remove_merge_list = set()
 
 
 class ImageScreen(Screen):
@@ -70,7 +71,7 @@ class MergeItem(OneLineAvatarListItem):
 
 
 class Files(SmartTileWithLabel):
-    def __init__(self, datas, image):
+    def __init__(self, datas, image, duration=None):
         super().__init__()
         self.orientation = 'vertical'
         self.size_hint_min_y = 200
@@ -85,7 +86,7 @@ class Files(SmartTileWithLabel):
         self.file_name, self.file_extension = os.path.splitext(datas)
         label_text = self.file_name if len(
             self.file_name) < 31 else self.file_name[:31]+'...'
-        duration = "29:00"
+        duration = duration
         self.text = f"[size=18][color=#ffffff]{label_text}[/color][/size]"
         if duration:
             self.text += "\n[size=14]{}[/size]".format(duration)
@@ -156,13 +157,13 @@ class Main(MDApp):
         snackbar.size_hint_x = (
             Window.width - (snackbar.snackbar_x * 2)
         ) / Window.width
-        snackbar.buttons = [
-            MDFlatButton(
-                text="CANCEL",
-                text_color=(1, 1, 1, 1),
-                on_release=snackbar.dismiss,
-            ),
-        ]
+        # snackbar.buttons = [
+        #     MDFlatButton(
+        #         text="CANCEL",
+        #         text_color=(1, 1, 1, 1),
+        #         on_release=snackbar.dismiss,
+        #     ),
+        # ]
         snackbar.open()
     # def calls(self, but):
     #     if but.icon == 'upload':
@@ -173,14 +174,14 @@ class Main(MDApp):
 
     def show_merge_dialog(self):
         # if there is an ongoing merge reject other merge
+        if not merge_list:
+            self.bar('Please select videos to merge')
+            return
         if ongoing_merge:
             self.bar('There is an ongoing merge. Please wait')
             return
 
         # if the merge list is empty don't show dialog
-        if not merge_list:
-            self.bar('Please select videos to merge')
-            return
 
         if not self.dialog:
             # content = self.merge_contents()
@@ -210,11 +211,15 @@ class Main(MDApp):
         bottom_sheet_menu = MDListBottomSheet()
         bottom_sheet_menu.radius_from = "top"
         d = 'downloading..'
+        _, ext = os.path.splitext(file_clicked)
+        merge_action = create_merge_actions(merge_list, file_clicked)
         data = {
-            "Add to merge list": ['merge', 'merge'],
+            file_clicked: ["video-image" if verify_video(file_clicked) else "image-size-select-actual", 'name'],
+            merge_action[0]: [merge_action[1], merge_action[2]],
             "Share": ["share", 'link copied'],
             "Save": ["download", d],
         }
+
         for item in data.items():
             bottom_sheet_menu.add_item(
                 item[0],
@@ -235,12 +240,14 @@ class Main(MDApp):
             file_clicked = None
         elif args[0] == 'merge':
             global merge_list
-            file, ext = os.path.splitext(file_clicked)
-            if ext not in ['.mp4', '.avi', '.webm']:
+            # file, ext = os.path.splitext(file_clicked)
+            if not verify_video(file_clicked):
                 toast('Please select a video file')
                 return
             merge_list.add(file_clicked) if len(
                 merge_list) < 3 else toast('max reached')
+        elif args[0] == 'remove':
+            merge_list.remove(file_clicked)
 
     def merge_action(self):
         if len(merge_list) < 2:
@@ -260,8 +267,10 @@ class Main(MDApp):
         merge_videos(files, 'VID_'+str(datetime.now()) +
                      '.mp4', "compose", self.bar)
         # set the flag for ongoing merge to False to allow other merges
-        global ongoing_merge
+        global ongoing_merge, merge_list
         ongoing_merge = False
+        merge_list = set()
+
         # merge_videos(files, )
 
         # elif args[0] == 'deleted':
@@ -333,26 +342,28 @@ class Main(MDApp):
                 # check if thumbnail already created
                 avail = check_for_thumbnail(file)
                 if not avail:
+                    # return datas and flag
                     thmb = self.create_thumbnail(file)
                 else:
                     thmb = file + "_thumbnail.jpg"
                 if not thmb:
                     continue
-                file_widget = Files(file, thmb)
+                duration = None
+                if verify_video(file):
+                    duration = self.get_vid_duration(file)
+                file_widget = Files(file, thmb, duration)
                 self.root.ids.box.add_widget(file_widget)
 
     def create_thumbnail(self, file):
         _, ext = os.path.splitext(file)
-        if ext in ['.mp4', '.webm', '.avi']:
+        if verify_video(file):
             vidcap = cv2.VideoCapture(os.path.join(self.path, file))
             success, image = vidcap.read()
             thmb = file + "_thumbnail.jpg"
             cv2.imwrite(thmb, image)
-            fps = vidcap.get(cv2.CAP_PROP_FPS)
-            frame_count = vidcap.get(cv2.CAP_PROP_FRAME_COUNT)
-            duration = frame_count/fps
+
             # return duration and thumbnail for video
-            print(duration)
+
             return thmb
         elif ext in ['.jpg', '.JPEG', '.JPG', '.png']:
             # thmb = file + "_thumbnail"+ext
@@ -363,6 +374,15 @@ class Main(MDApp):
             return thmb
 
         return False
+
+    def get_vid_duration(self, vid):
+        vidcap = cv2.VideoCapture(os.path.join(self.path, vid))
+        fps = vidcap.get(cv2.CAP_PROP_FPS)
+        frame_count = vidcap.get(cv2.CAP_PROP_FRAME_COUNT)
+        duration = str(frame_count/fps)
+        l = duration.split('.')
+        duration = f'{l[0]}:{l[1][:2]}'
+        return duration
 
         # await self.load_files()
 
