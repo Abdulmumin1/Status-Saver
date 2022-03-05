@@ -27,9 +27,10 @@ def merge_videos(video_clip_paths, output_path, method="compose", callback=None)
     callback('completed merging files')
 
 
-def check_for_thumbnail(name, path=None):
-    if os.path.exists(name + "_thumbnail.jpg"):
-        return True
+def check_for_thumbnail(name, path):
+    thmb = os.path.join(path, name + "_thumbnail.jpg")
+    if os.path.exists(thmb):
+        return thmb
     return False
 
 
@@ -51,4 +52,17 @@ def create_merge_actions(merge_list, file_clicked):
     name = "Add to merge list"
     icon = "merge"
     callback = "merge"
+    return name, icon, callback
+
+
+def create_file_action(file_clicked):
+    if verify_video(file_clicked):
+        name = "Play"
+        icon = "video-image"
+        callback = "play-video"
+
+        return name, icon, callback
+    name = "View"
+    icon = "image-size-select-actual"
+    callback = "view-image"
     return name, icon, callback

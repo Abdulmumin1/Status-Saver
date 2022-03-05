@@ -14,9 +14,12 @@ from kivymd.uix.imagelist import SmartTileWithLabel
 from kivymd.uix.dialog import MDDialog
 from kivy.properties import StringProperty
 from kivymd.uix.list import OneLineAvatarListItem
-from kivy.uix.screenmanager import Screen
+from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.utils import platform
+from kivy.graphics.texture import Texture
+from kivy.clock import Clock
 from datetime import datetime
+
 import time
 import threading
 import os
@@ -24,31 +27,57 @@ import cv2
 
 # from db_server import load_files_from_server, download_file_content, delete_record, upload_file_content,search,create_cat
 
-from utils import check_for_thumbnail, verify_video, create_merge_actions
+from utils import check_for_thumbnail, verify_video, create_merge_actions, create_file_action
 KV = '''
 MDScreen:
-    Screen:
-        id:main_screen
-        MDBoxLayout:
+    ScreenManager:
+        id:screen_manager
+        Screen:
+            name:"main-screen"
+            id:main_screen
+            MDBoxLayout:
 
-            orientation:"vertical"
-            MDToolbar:
-                md_bg_color:app.theme_cls.bg_dark
-                title:"Status Saver"
-                right_action_items:[["merge", lambda x:app.show_merge_dialog()], ["refresh", lambda x:app.refresh()]]
+                orientation:"vertical"
+                MDToolbar:
+                    md_bg_color:app.theme_cls.bg_dark
+                    title:"Status Saver"
+                    right_action_items:[["merge", lambda x:app.show_merge_dialog()], ["refresh", lambda x:app.refresh()]]
 
-            ScrollView:
-                MDList:
-                    id:box
-                    cols:2
-                    spacing:10
+                ScrollView:
+                    MDList:
+                        id:box
+                        cols:2
+                        spacing:10
 
 <ImageScreen>
     MDBoxLayout:
-        MDLabel:
-            text:"nice"
-        FitImage:
-            source:'/home/famira/Music/ed.png'
+        orientation:"vertical"
+        MDIconButton:
+            id:back
+            icon:"keyboard-backspace"
+            on_release:app.back_to_homescreen()
+        Image:
+            id:image
+            source:root.image_tb
+        MDBoxLayout:
+            size_hint_max_y:60
+            padding:10
+            MDIconButton:
+                id:share
+                icon:"share"
+                on_release:app.play_video()
+            MDSeparator:
+            MDIconButton:
+                id:save
+                icon:"download"
+                on_release:app.save_video()
+            MDSeparator:
+            MDIconButton:
+                id:merge
+                icon:"merge"
+                on_release:app.add_to_mergelist()
+
+
 <MergeItem>
     ImageLeftWidget:
         source:root.source
@@ -56,13 +85,14 @@ MDScreen:
 
 
 file_clicked = None
-merge_list = set()
+file_clicked_thumbnail = None
+merge_list = []
 ongoing_merge = False
 remove_merge_list = set()
 
 
 class ImageScreen(Screen):
-    ''
+    image_tb = StringProperty()
 
 
 class MergeItem(OneLineAvatarListItem):
@@ -91,7 +121,6 @@ class Files(SmartTileWithLabel):
         if duration:
             self.text += "\n[size=14]{}[/size]".format(duration)
 
-        self.show_bottom_sheet = None
         # icon = MDIcon(icon='file' if data_type ==
         #               'file' else 'folder', halign='center')
         # icon.font_size = 50
@@ -102,18 +131,10 @@ class Files(SmartTileWithLabel):
         # self.add_widget(label)
 
     def on_release(self):
-        global file_clicked
+        global file_clicked, file_clicked_thumbnail
         file_clicked = self.file_name+self.file_extension
+        file_clicked_thumbnail = self.source
         app.show_list_menu()
-
-    # def download_file(self,v=None):
-    #     downloaded_text = f'{self.file_name}.{self.file_extension} downloaded'
-    #     threadd = threading.Thread(target=download_file_content, args=(self.file_id, (self.file_name, self.file_extension, lambda:self.bar(downloaded_text)), self.error_f))
-    #     threadd.start()
-    # def error_f(self):
-    #     self.bar('error downloading file. Retrying')
-    #     event = Clock.schedule_once(self.download_file, 5)
-    #     event()
 
     # def show_alert_dialog(self):
     #     if not self.dialog:
@@ -133,14 +154,6 @@ class Files(SmartTileWithLabel):
     # def dismiss_del_dial(self,e):
     #     if self.dialog:
     #         self.dialog.dismiss()
-    # def delete_file_ok(self,e):
-    #     try:
-    #         delete_record(self.file_id)
-    #         toast('deleted')
-    #         self.dialog.dismiss()
-    #     except:
-    #         self.dialog.dismiss()
-    #         self.bar('error connecting with server')
 
 
 class Main(MDApp):
@@ -188,7 +201,7 @@ class Main(MDApp):
             self.dialog = MDDialog(
                 title="Videos to merge:",
                 type="simple",
-                items=[MergeItem(text=items, source=items+'_thumbnail.jpg')
+                items=[MergeItem(text=items, source=os.path.join(self.thumbnail_path, items+'_thumbnail.jpg'))
                        for items in merge_list],
                 buttons=[
                     MDFlatButton(
@@ -213,8 +226,11 @@ class Main(MDApp):
         d = 'downloading..'
         _, ext = os.path.splitext(file_clicked)
         merge_action = create_merge_actions(merge_list, file_clicked)
+        # either play video or view image
+        file_actions = create_file_action(file_clicked)
+
         data = {
-            file_clicked: ["video-image" if verify_video(file_clicked) else "image-size-select-actual", 'name'],
+            file_actions[0]: [file_actions[1], file_actions[2]],
             merge_action[0]: [merge_action[1], merge_action[2]],
             "Share": ["share", 'link copied'],
             "Save": ["download", d],
@@ -227,30 +243,39 @@ class Main(MDApp):
                 icon=item[1][0],)
         bottom_sheet_menu.open()
 
-    def save_video(self, file):
+    def save_video(self):
+        file = os.path.join(self.path, file_clicked)
         with open(file, 'rb') as f:
-            file2 = os.path.basename(file)
-            with open(file2, 'wb') as nf:
+            _, ext = os.path.splitext(os.path.basename(file))
+            with open(os.path.join(self.my_parent_folder, "VID-"+str(datetime.now())+ext), 'wb') as nf:
                 nf.write(f.read())
+            self.bar('File saved')
 
     def callback_for_menu_items(self, *args):
         global file_clicked
         if args[0] == 'downloading..':
-            self.save_video(self.path+'/'+file_clicked)
+            self.save_video()
             file_clicked = None
         elif args[0] == 'merge':
-            global merge_list
-            # file, ext = os.path.splitext(file_clicked)
-            if not verify_video(file_clicked):
-                toast('Please select a video file')
-                return
-            merge_list.add(file_clicked) if len(
-                merge_list) < 3 else toast('max reached')
+            self.add_to_mergelist()
         elif args[0] == 'remove':
             merge_list.remove(file_clicked)
+        elif args[0] in ('play-video', 'view-image'):
+            self.change_screen()
+
+    def add_to_mergelist(self):
+        global merge_list
+        # file, ext = os.path.splitext(file_clicked)
+        if not verify_video(file_clicked):
+            toast('Please select a video file')
+            return
+        if file_clicked not in merge_list:
+            merge_list.append(file_clicked) if len(
+                merge_list) < 11 else toast('max reached')
 
     def merge_action(self):
         if len(merge_list) < 2:
+            self.close_dial('event')
             toast('requires two or more videos')
             return
         files = [os.path.join(self.path, f) for f in merge_list]
@@ -269,69 +294,16 @@ class Main(MDApp):
         # set the flag for ongoing merge to False to allow other merges
         global ongoing_merge, merge_list
         ongoing_merge = False
-        merge_list = set()
+        merge_list = []
 
         # merge_videos(files, )
 
         # elif args[0] == 'deleted':
         #     self.show_alert_dialog()
 
-    # def close_dial(self,e):
-    #     if self.dialog:
-    #         self.dialog.dismiss()
-    # def search(self):
-    #     self.root.ids.box.clear_widgets()
-    #     res = None
-    #     try:
-    #         res = search(self.root.ids.text_searcher.text)
-    #     except:
-    #         self.bar('error connecting with server')
-    #     if res:
-    #         for xfile in res[::-1]:
-    #             file_widget = Files(xfile)
-    #             self.root.ids.box.add_widget(file_widget)
-
-    # def fileManager(self):
-    #     path = '/storage' # path to the directory that will be opened in the file manager
-    #     self.file_manager = MDFileManager(
-    #     # exit_manager=self.cl,
-    #     select_path=self.select_path,
-    #     )
-    #     self.file_manager.show(path)
-
-    # def upload_files_func(self, upload_files):
-    #     if type(upload_files) == list:
-    #         for file in upload_files:
-    #             self.upload_def(file)
-    #     else:
-    #         self.upload_def(upload_files)
-
-    # def select_path(self, path):
-    #     upload_files  = path
-    #     try:
-    #         thread = threading.Thread(target=self.upload_files_func,args=(upload_files,))
-    #         thread.start()
-    #         self.file_manager.close()
-    #     except:
-    #         self.file_manager.close()
-    #         self.bar('error connecting with server')
-
-    # def upload_def(self, xfile):
-    #     upload = upload_file_content(xfile,error=self.upload_error)
-    #     if upload:
-    #         file_card = Files(upload)
-    #         self.root.id.box.addWidget(file_card)
-    # def upload_error(self):
-    #     self.bar('error connecting with server')
-    # def create_collection(self, name):
-    #     try:
-    #         cat =create_cat(name)
-    #     except:
-    #         self.bar('error connecting with server')
-    #     self.dialog.dismiss()
-
     def load_files(self):
         self.path = '/home/famira/Music/test_datas'
+        self.thumbnail_path = 'thumbnails'
         if platform == "android":
             pass
         file_path = os.listdir(self.path)
@@ -340,12 +312,10 @@ class Main(MDApp):
             if os.path.isfile(self.path+'/'+file):
 
                 # check if thumbnail already created
-                avail = check_for_thumbnail(file)
-                if not avail:
-                    # return datas and flag
+                thmb = check_for_thumbnail(file, self.thumbnail_path)
+                if not thmb:
+                    # create thumbnail if it not available
                     thmb = self.create_thumbnail(file)
-                else:
-                    thmb = file + "_thumbnail.jpg"
                 if not thmb:
                     continue
                 duration = None
@@ -359,7 +329,7 @@ class Main(MDApp):
         if verify_video(file):
             vidcap = cv2.VideoCapture(os.path.join(self.path, file))
             success, image = vidcap.read()
-            thmb = file + "_thumbnail.jpg"
+            thmb = os.path.join(self.thumbnail_path, file + "_thumbnail.jpg")
             cv2.imwrite(thmb, image)
 
             # return duration and thumbnail for video
@@ -386,15 +356,39 @@ class Main(MDApp):
 
         # await self.load_files()
 
-    # def load_files(self,e):
-    #     files = load_files_from_server()
-    #     if files != 'error':
-    #         for i in files[::-1]:
-    #             choice = ['file', 'folder']
-    #             but = Files(i)
-    #             self.root.ids.box.add_widget(but)
-    #     else:
-    #         self.bar('error connecting with server')
+    def load_video(self, image, *args):
+
+        _, frame = self.capture.read(self.count)
+        buffer = cv2.flip(frame, 0).tobytes()
+        texture = Texture.create(
+            size=(frame.shape[1], frame.shape[0]), colorfmt='bgr')
+        texture.blit_buffer(buffer, colorfmt='bgr', bufferfmt='ubyte')
+        image.texture = texture
+        self.count += 1
+        print(self.count)
+
+    def change_screen(self):
+        if verify_video(file_clicked):
+            toast("Can't play video at the moment")
+            return
+        s = ImageScreen()
+        s.image_tb = file_clicked_thumbnail
+        s.name = "image"
+        sm = self.root.ids.screen_manager
+        sm.add_widget(s)
+        sm.current = 'image'
+        # if verify_video(file_clicked):
+        # self.capture = cv2.VideoCapture(
+        #     os.path.join(self.path, file_clicked))
+        # self.count = 0
+        # Clock.schedule_interval(
+        #     lambda x: self.load_video(s), 1.0/30.0)
+
+    def back_to_homescreen(self):
+        sm = self.root.ids.screen_manager
+        sm.remove_widget(sm.get_screen('image'))
+        sm.current = "main-screen"
+
     def refresh(self):
         self.root.ids.box.clear_widgets()
         self.on_start()
@@ -404,15 +398,29 @@ class Main(MDApp):
         self.load_files()
 
     def on_start(self):
+
         thread = threading.Thread(target=self.load_ui)
         thread.start()
 
     def build(self):
+        if platform == 'android':
+            from android.permissions import request_permissions, Permissions
+            from android.storage import primary_external_storage_path
+            request_permissions(
+                [Permissions.READ_EXTERNAL_STORAGE, Permissions.WRITE_EXTERNAL_STORAGE])
+            sdcard = primary_external_storage_path()
+            self.path = os.path.join(sdcard, "WhatsApp/Media/.Statuses")
+            self.my_parent_folder = os.path.join(sdcard, "Status-Saver")
+            os.path.mkdirs(self.my_parent_folder)
+            self.thumbnail_path = os.path.join(
+                self.my_parent_folder, '.thumbnails')
+            os.path.mkdirs(self.thumbnail_path)
+
         self.theme_cls.theme_style = 'Dark'
         return Builder.load_string(KV)
 
 
-Window.size = (400, 1280)
+# Window.size = (400, 1280)
 app = Main()
 # asyncio.run(app.on_start())
 app.run()
