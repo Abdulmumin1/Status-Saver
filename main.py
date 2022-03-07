@@ -17,7 +17,7 @@ from kivymd.uix.list import OneLineAvatarListItem
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.utils import platform
 from kivy.graphics.texture import Texture
-from kivy.clock import Clock
+from kivy.clock import Clock, ClockBase
 from datetime import datetime
 
 import time
@@ -57,11 +57,12 @@ MDScreen:
             icon:"keyboard-backspace"
             on_release:app.back_to_homescreen()
         Image:
+            
             id:image
             source:root.image_tb
         MDBoxLayout:
             size_hint_max_y:60
-            padding:10
+            
             MDIconButton:
                 id:share
                 icon:"share"
@@ -113,13 +114,15 @@ class Files(SmartTileWithLabel):
         # self.dialog = None
         # data_type = 'file'
         # self.file_id = datas['pk']
+
         self.file_name, self.file_extension = os.path.splitext(datas)
-        label_text = self.file_name if len(
-            self.file_name) < 31 else self.file_name[:31]+'...'
-        duration = duration
-        self.text = f"[size=18][color=#ffffff]{label_text}[/color][/size]"
-        if duration:
-            self.text += "\n[size=14]{}[/size]".format(duration)
+        if verify_video(datas):
+            label_text = self.file_name if len(
+                self.file_name) < 31 else self.file_name[:31]+'...'
+            duration = duration
+            self.text = f"[size=18][color=#ffffff]{label_text}[/color][/size]"
+            if duration:
+                self.text += "\n[size=14]{}[/size]".format(duration)
 
         # icon = MDIcon(icon='file' if data_type ==
         #               'file' else 'folder', halign='center')
@@ -356,51 +359,57 @@ class Main(MDApp):
 
         # await self.load_files()
 
-    def load_video(self, image, *args):
-
-        _, frame = self.capture.read(self.count)
-        buffer = cv2.flip(frame, 0).tobytes()
-        texture = Texture.create(
-            size=(frame.shape[1], frame.shape[0]), colorfmt='bgr')
-        texture.blit_buffer(buffer, colorfmt='bgr', bufferfmt='ubyte')
-        image.texture = texture
-        self.count += 1
-        print(self.count)
+    def load_video(self, *args):
+        try:
+            _, frame = self.capture.read(self.count)
+            # frame = frame.resize(1280, 400)
+            buffer = cv2.flip(frame, 0).tobytes()
+            texture = Texture.create(
+                size=(frame.shape[1], frame.shape[0]), colorfmt='bgr')
+            texture.blit_buffer(buffer, colorfmt='bgr', bufferfmt='ubyte')
+            image = self.s.ids.image
+            image.texture = texture
+            self.count += 1
+        except:
+            self.video_play_event.cancel()
 
     def change_screen(self):
-        if verify_video(file_clicked):
-            toast("Can't play video at the moment")
-            return
-        s = ImageScreen()
-        s.image_tb = file_clicked_thumbnail
-        s.name = "image"
-        sm = self.root.ids.screen_manager
-        sm.add_widget(s)
-        sm.current = 'image'
         # if verify_video(file_clicked):
-        # self.capture = cv2.VideoCapture(
-        #     os.path.join(self.path, file_clicked))
-        # self.count = 0
-        # Clock.schedule_interval(
-        #     lambda x: self.load_video(s), 1.0/30.0)
+        #     toast("Can't play video at the moment")
+        #     return
+        self.s = ImageScreen()
+        self.s.image_tb = file_clicked_thumbnail
+        self.s.name = "image"
+        sm = self.root.ids.screen_manager
+        sm.add_widget(self.s)
+        sm.current = 'image'
+        if verify_video(file_clicked):
+            self.capture = cv2.VideoCapture(
+                os.path.join(self.path, file_clicked))
+            self.count = 0
+            self.video_play_event = Clock.schedule_interval(
+                self.load_video, 1.0/30.0)
 
     def back_to_homescreen(self):
         sm = self.root.ids.screen_manager
         sm.remove_widget(sm.get_screen('image'))
         sm.current = "main-screen"
+        if verify_video(file_clicked):
+            self.video_play_event.cancel()
 
     def refresh(self):
         self.root.ids.box.clear_widgets()
         self.on_start()
 
-    def load_ui(self):
-        time.sleep(1)
-        self.load_files()
+    # def load_ui(self):
+    #     time.sleep(1)
+    #     self.load_files()
 
     def on_start(self):
 
-        thread = threading.Thread(target=self.load_ui)
-        thread.start()
+        # thread = threading.Thread(target=self.load_ui)
+        # thread.start()
+        Clock.schedule_once(lambda x: self.load_files(), 2)
 
     def build(self):
         if platform == 'android':
@@ -420,7 +429,7 @@ class Main(MDApp):
         return Builder.load_string(KV)
 
 
-# Window.size = (400, 1280)
+Window.size = (320, 1280)
 app = Main()
 # asyncio.run(app.on_start())
 app.run()
