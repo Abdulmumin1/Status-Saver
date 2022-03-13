@@ -14,6 +14,7 @@ from kivymd.uix.imagelist import SmartTileWithLabel
 from kivymd.uix.dialog import MDDialog
 from kivy.properties import StringProperty
 from kivymd.uix.list import OneLineAvatarListItem
+from kivymd.utils import asynckivy
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.utils import platform
 from kivy.graphics.texture import Texture
@@ -23,8 +24,7 @@ from datetime import datetime
 import time
 import threading
 import os
-import cv2
-
+from cv2 import VideoCapture, CAP_PROP_FPS, CAP_PROP_FRAME_COUNT, flip
 # from db_server import load_files_from_server, download_file_content, delete_record, upload_file_content,search,create_cat
 
 from utils import check_for_thumbnail, verify_video, create_merge_actions, create_file_action
@@ -66,7 +66,7 @@ MDScreen:
             MDIconButton:
                 id:share
                 icon:"share"
-                on_release:app.play_video()
+
             MDSeparator:
             MDIconButton:
                 id:save
@@ -305,32 +305,36 @@ class Main(MDApp):
         #     self.show_alert_dialog()
 
     def load_files(self):
-        self.path = '/home/famira/Music/test_datas'
-        self.thumbnail_path = 'thumbnails'
-        if platform == "android":
-            pass
-        file_path = os.listdir(self.path)
-        for file in file_path:
+        async def load_files():
+            self.path = '/home/famira/Music/test_datas'
+            self.thumbnail_path = 'thumbnails'
+            if platform == "android":
+                pass
+            file_path = os.listdir(self.path)
+            for file in file_path:
 
-            if os.path.isfile(self.path+'/'+file):
+                if os.path.isfile(self.path+'/'+file):
 
-                # check if thumbnail already created
-                thmb = check_for_thumbnail(file, self.thumbnail_path)
-                if not thmb:
-                    # create thumbnail if it not available
-                    thmb = self.create_thumbnail(file)
-                if not thmb:
-                    continue
-                duration = None
-                if verify_video(file):
-                    duration = self.get_vid_duration(file)
-                file_widget = Files(file, thmb, duration)
-                self.root.ids.box.add_widget(file_widget)
+                    # check if thumbnail already created
+                    thmb = check_for_thumbnail(file, self.thumbnail_path)
+                    if not thmb:
+                        # create thumbnail if it not available
+                        thmb = self.create_thumbnail(file)
+                    if not thmb:
+                        continue
+                    duration = None
+                    if verify_video(file):
+                        duration = self.get_vid_duration(file)
+
+                    file_widget = Files(file, thmb, duration)
+                    await asynckivy.sleep(0)
+                    self.root.ids.box.add_widget(file_widget)
+        asynckivy.start(load_files())
 
     def create_thumbnail(self, file):
         _, ext = os.path.splitext(file)
         if verify_video(file):
-            vidcap = cv2.VideoCapture(os.path.join(self.path, file))
+            vidcap = VideoCapture(os.path.join(self.path, file))
             success, image = vidcap.read()
             thmb = os.path.join(self.thumbnail_path, file + "_thumbnail.jpg")
             cv2.imwrite(thmb, image)
@@ -349,9 +353,9 @@ class Main(MDApp):
         return False
 
     def get_vid_duration(self, vid):
-        vidcap = cv2.VideoCapture(os.path.join(self.path, vid))
-        fps = vidcap.get(cv2.CAP_PROP_FPS)
-        frame_count = vidcap.get(cv2.CAP_PROP_FRAME_COUNT)
+        vidcap = VideoCapture(os.path.join(self.path, vid))
+        fps = vidcap.get(CAP_PROP_FPS)
+        frame_count = vidcap.get(CAP_PROP_FRAME_COUNT)
         duration = str(frame_count/fps)
         l = duration.split('.')
         duration = f'{l[0]}:{l[1][:2]}'
@@ -363,13 +367,14 @@ class Main(MDApp):
         try:
             _, frame = self.capture.read(self.count)
             # frame = frame.resize(1280, 400)
-            buffer = cv2.flip(frame, 0).tobytes()
+            buffer = flip(frame, 0).tobytes()
             texture = Texture.create(
                 size=(frame.shape[1], frame.shape[0]), colorfmt='bgr')
             texture.blit_buffer(buffer, colorfmt='bgr', bufferfmt='ubyte')
             image = self.s.ids.image
             image.texture = texture
             self.count += 1
+            # print(self)
         except:
             self.video_play_event.cancel()
 
@@ -384,8 +389,13 @@ class Main(MDApp):
         sm.add_widget(self.s)
         sm.current = 'image'
         if verify_video(file_clicked):
-            self.capture = cv2.VideoCapture(
+            self.capture = VideoCapture(
                 os.path.join(self.path, file_clicked))
+            fps = self.capture.get(CAP_PROP_FPS)
+            fps = round(fps)
+            # old fps  > 1.0/30.0
+            fps = float(fps/1000)
+            print(fps)
             self.count = 0
             self.video_play_event = Clock.schedule_interval(
                 self.load_video, 1.0/30.0)
