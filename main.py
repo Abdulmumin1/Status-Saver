@@ -10,7 +10,7 @@ from kivy.uix.scrollview import ScrollView
 # from kivymd.uix.label import MDLabel, MDIcon
 from kivymd.toast import toast
 from kivymd.uix.bottomsheet import MDGridBottomSheet, MDListBottomSheet
-from kivymd.uix.imagelist import SmartTileWithLabel
+from kivymd.uix.imagelist import SmartTileWithLabel, SmartTile
 from kivymd.uix.dialog import MDDialog
 from kivy.properties import StringProperty
 from kivymd.uix.list import OneLineAvatarListItem
@@ -140,12 +140,14 @@ def thumbnail_thread(file_path, main_path, thumbnail_path, callback):
         if os.path.isfile(os.path.join(main_path, file)):
             if not verify_video(file):
                 continue
-
-            create_all_thumbnails(file)
+            try:
+                create_all_thumbnails(file)
+            except:
+                pass
     callback()
 
 
-class Files(SmartTileWithLabel):
+class Files(SmartTile):
     def __init__(self, datas, image, duration=None):
         super().__init__()
         self.orientation = 'vertical'
@@ -298,7 +300,7 @@ class Main(MDApp):
         file = os.path.join(self.path, file_clicked)
         with open(file, 'rb') as f:
             _, ext = os.path.splitext(os.path.basename(file))
-            with open(os.path.join(self.my_parent_folder, "VID-"+str(datetime.now())+ext), 'wb') as nf:
+            with open(os.path.join(self.my_parent_folder, "IMG-"+str(datetime.now())+ext), 'wb') as nf:
                 nf.write(f.read())
             self.bar('File saved')
 
@@ -362,6 +364,7 @@ class Main(MDApp):
         self.spinner.pos_hint = {"center_x": .5, "center_y": .5}
         self.spinner.active = True
         self.path = '/home/famira/Music/test_datas'
+        self.my_parent_folder = '.'
         self.thumbnail_path = 'thumbnails'
 
         if platform == 'android':
@@ -396,6 +399,7 @@ class Main(MDApp):
                 if not thmb:
                     thmb = create_image_thumbnail(file)
                 if not thmb:
+
                     continue
                 duration = files_duration.get(file, None)
                 # if verify_video(file):
@@ -492,7 +496,7 @@ class Main(MDApp):
         return Builder.load_string(KV)
 
 
-Window.size = (320, 1280)
+# Window.size = (320, 1280)
 app = Main()
 # asyncio.run(app.on_start())
 app.run()
