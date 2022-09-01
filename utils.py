@@ -27,6 +27,23 @@ def merge_videos(video_clip_paths, output_path, method="compose", callback=None)
     callback('completed merging files')
 
 
+def extract_thumbnail(file, thumbnail_path):
+    from ffmpeg import probe
+    from ffmpeg import input as n
+    probe = probe(file)
+    duration = float(probe['streams'][0]['duration'])
+    width = probe['streams'][0]['width']
+
+    thmb = check_for_thumbnail(os.path.basename(file), thumbnail_path)
+    if thmb:
+        return duration
+    thmb = os.path.join(
+        thumbnail_path, os.path.basename(file) + "_thumbnail.jpg")
+    good, err = (n(file).filter(
+        'scale', width, -1).output(thmb, vframes=1).run())
+    return duration
+
+
 def check_for_thumbnail(name, path):
     thmb = os.path.join(path, name + "_thumbnail.jpg")
     if os.path.exists(thmb):
@@ -66,3 +83,6 @@ def create_file_action(file_clicked):
     icon = "image-size-select-actual"
     callback = "view-image"
     return name, icon, callback
+
+
+# extract_clips('/home/famira/Music/untitled.mp4', 'thumbnails')

@@ -14,20 +14,21 @@ from kivymd.uix.imagelist import SmartTileWithLabel
 from kivymd.uix.dialog import MDDialog
 from kivy.properties import StringProperty
 from kivymd.uix.list import OneLineAvatarListItem
+from kivymd.uix.spinner import MDSpinner
 from kivymd.utils import asynckivy
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.utils import platform
 from kivy.graphics.texture import Texture
 from kivy.clock import Clock, ClockBase
 from datetime import datetime
-
 import time
 import threading
 import os
-from cv2 import VideoCapture, CAP_PROP_FPS, CAP_PROP_FRAME_COUNT, flip
+
+
 # from db_server import load_files_from_server, download_file_content, delete_record, upload_file_content,search,create_cat
 
-from utils import check_for_thumbnail, verify_video, create_merge_actions, create_file_action
+from utils import check_for_thumbnail, verify_video, create_merge_actions, create_file_action, extract_thumbnail
 KV = '''
 MDScreen:
     ScreenManager:
@@ -36,7 +37,7 @@ MDScreen:
             name:"main-screen"
             id:main_screen
             MDBoxLayout:
-
+                id:main_layout
                 orientation:"vertical"
                 MDToolbar:
                     md_bg_color:app.theme_cls.bg_dark
@@ -56,23 +57,23 @@ MDScreen:
             id:back
             icon:"keyboard-backspace"
             on_release:app.back_to_homescreen()
-        Image:
-            
+        Video:
+
             id:image
             source:root.image_tb
         MDBoxLayout:
             size_hint_max_y:60
-            
+
             MDIconButton:
                 id:share
                 icon:"share"
 
-            MDSeparator:
+            Splitter:
             MDIconButton:
                 id:save
                 icon:"download"
                 on_release:app.save_video()
-            MDSeparator:
+            Splitter:
             MDIconButton:
                 id:merge
                 icon:"merge"
@@ -89,6 +90,7 @@ file_clicked = None
 file_clicked_thumbnail = None
 merge_list = []
 ongoing_merge = False
+files_duration = {}
 remove_merge_list = set()
 
 
@@ -101,6 +103,48 @@ class MergeItem(OneLineAvatarListItem):
     source = StringProperty()
 
 
+# def create_thumbnail(file):
+#     thmb = check_for_thumbnail(file, app.thumbnail_path)
+#     if thmb:
+#         return thmb
+
+
+def create_all_thumbnails(file):
+    _, ext = os.path.splitext(file)
+    if verify_video(file):
+        global files_duration
+
+        # thmb = check_for_thumbnail(file, app.thumbnail_path)
+        # if thmb:
+        #     return thmb
+        thmb = os.path.join(app.thumbnail_path, file + "_thumbnail.jpg")
+        duration = extract_thumbnail(os.path.join(
+            app.path, file), app.thumbnail_path)
+        files_duration[file] = duration
+        return thmb
+
+
+def create_image_thumbnail(file):
+    _, ext = os.path.splitext(file)
+    if ext in ['.jpg', '.JPEG', '.JPG', '.png']:
+        # thmb = file + "_thumbnail"+ext
+        # with open(thmb, 'wb') as new:
+        #     with open(os.path.join(self.path, file), 'rb') as old:
+        #         new.write(old.read())
+        thmb = os.path.join(app.path, file)
+        return thmb
+
+
+def thumbnail_thread(file_path, main_path, thumbnail_path, callback):
+    for file in file_path:
+        if os.path.isfile(os.path.join(main_path, file)):
+            if not verify_video(file):
+                continue
+
+            create_all_thumbnails(file)
+    callback()
+
+
 class Files(SmartTileWithLabel):
     def __init__(self, datas, image, duration=None):
         super().__init__()
@@ -108,7 +152,11 @@ class Files(SmartTileWithLabel):
         self.size_hint_min_y = 200
         # self.md_bg_color = (.33, .33, .33, .3)
         self.radius = [6, 6, 6, 6]
+        # print('Created')
+
         self.source = image
+
+        # self.source = create_image_thumbnail(datas)
         # self.elevation = 10
         # self.background = '/home/famira/Music/ed.ed.png'
         # self.dialog = None
@@ -118,7 +166,7 @@ class Files(SmartTileWithLabel):
         self.file_name, self.file_extension = os.path.splitext(datas)
         if verify_video(datas):
             label_text = self.file_name if len(
-                self.file_name) < 31 else self.file_name[:31]+'...'
+                self.file_name) < 21 else self.file_name[:21]+'...'
             duration = duration
             self.text = f"[size=18][color=#ffffff]{label_text}[/color][/size]"
             if duration:
@@ -292,8 +340,8 @@ class Main(MDApp):
     def merge_thread(self, files):
 
         from utils import merge_videos
-        merge_videos(files, 'VID_'+str(datetime.now()) +
-                     '.mp4', "compose", self.bar)
+        merge_videos(files, os.path.join(self.my_parent_folder, 'VID_'+str(datetime.now()) +
+                     '.mp4'), "compose", self.bar)
         # set the flag for ongoing merge to False to allow other merges
         global ongoing_merge, merge_list
         ongoing_merge = False
@@ -304,79 +352,85 @@ class Main(MDApp):
         # elif args[0] == 'deleted':
         #     self.show_alert_dialog()
 
+    def create_video_thumbnail(self):
+        self.change_widget_state(disabled=True)
+        self.spinner = MDSpinner()
+        self.spinner.size_hint = (None, None)
+        self.spinner.size = (70, 70)
+        # self.spinner.determinate_time = .3
+        self.root.ids.main_screen.add_widget(self.spinner)
+        self.spinner.pos_hint = {"center_x": .5, "center_y": .5}
+        self.spinner.active = True
+        self.path = '/home/famira/Music/test_datas'
+        self.thumbnail_path = 'thumbnails'
+
+        if platform == 'android':
+            from android.storage import primary_external_storage_path
+            sdcard = primary_external_storage_path()
+            self.path = os.path.join(sdcard, "WhatsApp/Media/.Statuses")
+            self.my_parent_folder = os.path.join(sdcard, "Status-Saver")
+            self.thumbnail_path = os.path.join(
+                self.my_parent_folder, '.thumbnails')
+
+        file_path = os.listdir(self.path)
+
+        thread = threading.Thread(target=thumbnail_thread, args=(
+            file_path, self.path, self.thumbnail_path, self.remove_spinner))
+        thread.start()
+
+    def remove_spinner(self):
+        self.spinner.active = False
+        self.root.ids.main_screen.remove_widget(self.spinner)
+        self.change_widget_state(disabled=False)
+        self.refresh()
+
     def load_files(self):
         async def load_files():
-            self.path = '/home/famira/Music/test_datas'
-            self.thumbnail_path = 'thumbnails'
             if platform == "android":
                 pass
-            file_path = os.listdir(self.path)
-            for file in file_path:
+                # create_all_thumbnails(file)
+            for file in os.listdir(self.path):
+                # check if thumbnail already created
+                thmb = check_for_thumbnail(file, self.thumbnail_path)
 
-                if os.path.isfile(self.path+'/'+file):
+                if not thmb:
+                    thmb = create_image_thumbnail(file)
+                if not thmb:
+                    continue
+                duration = files_duration.get(file, None)
+                # if verify_video(file):
+                #     duration = self.get_vid_duration(file)
 
-                    # check if thumbnail already created
-                    thmb = check_for_thumbnail(file, self.thumbnail_path)
-                    if not thmb:
-                        # create thumbnail if it not available
-                        thmb = self.create_thumbnail(file)
-                    if not thmb:
-                        continue
-                    duration = None
-                    if verify_video(file):
-                        duration = self.get_vid_duration(file)
-
-                    file_widget = Files(file, thmb, duration)
-                    await asynckivy.sleep(0)
-                    self.root.ids.box.add_widget(file_widget)
+                file_widget = Files(file, thmb, duration)
+                await asynckivy.sleep(0)
+                self.root.ids.box.add_widget(file_widget)
         asynckivy.start(load_files())
 
-    def create_thumbnail(self, file):
-        _, ext = os.path.splitext(file)
-        if verify_video(file):
-            vidcap = VideoCapture(os.path.join(self.path, file))
-            success, image = vidcap.read()
-            thmb = os.path.join(self.thumbnail_path, file + "_thumbnail.jpg")
-            cv2.imwrite(thmb, image)
-
-            # return duration and thumbnail for video
-
-            return thmb
-        elif ext in ['.jpg', '.JPEG', '.JPG', '.png']:
-            # thmb = file + "_thumbnail"+ext
-            # with open(thmb, 'wb') as new:
-            #     with open(os.path.join(self.path, file), 'rb') as old:
-            #         new.write(old.read())
-            thmb = os.path.join(self.path, file)
-            return thmb
-
-        return False
-
-    def get_vid_duration(self, vid):
-        vidcap = VideoCapture(os.path.join(self.path, vid))
-        fps = vidcap.get(CAP_PROP_FPS)
-        frame_count = vidcap.get(CAP_PROP_FRAME_COUNT)
-        duration = str(frame_count/fps)
-        l = duration.split('.')
-        duration = f'{l[0]}:{l[1][:2]}'
-        return duration
+    def change_widget_state(self, disabled):
+        screen = self.root.ids.main_screen
+        for widget in screen.children:
+            widget.disabled = disabled
+    # def get_vid_duration(self, vid):
+    #     vidcap = VideoCapture(os.path.join(self.path, vid))
+    #     fps = vidcap.get(CAP_PROP_FPS)
+    #     frame_count = vidcap.get(CAP_PROP_FRAME_COUNT)
+    #     duration = str(frame_count/fps)
+    #     l = duration.split('.')
+    #     duration = f'{l[0]}:{l[1][:2]}'
+    #     return duration
 
         # await self.load_files()
 
-    def load_video(self, *args):
-        try:
-            _, frame = self.capture.read(self.count)
-            # frame = frame.resize(1280, 400)
-            buffer = flip(frame, 0).tobytes()
-            texture = Texture.create(
-                size=(frame.shape[1], frame.shape[0]), colorfmt='bgr')
-            texture.blit_buffer(buffer, colorfmt='bgr', bufferfmt='ubyte')
-            image = self.s.ids.image
-            image.texture = texture
-            self.count += 1
-            # print(self)
-        except:
-            self.video_play_event.cancel()
+    # def load_video(self, *args):
+
+    #     # _, frame = self.capture.read(self.count)
+    #     # frame = frame.resize(1280, 400)
+    #     buffer = flip(frame, 0).tobytes()
+    #     texture = Texture.create(
+    #         size=(frame.shape[1], frame.shape[0]), colorfmt='bgr')
+    #     texture.blit_buffer(buffer, colorfmt='bgr', bufferfmt='ubyte')
+    #     image = self.s.ids.image
+    #     image.texture = texture
 
     def change_screen(self):
         # if verify_video(file_clicked):
@@ -388,28 +442,29 @@ class Main(MDApp):
         sm = self.root.ids.screen_manager
         sm.add_widget(self.s)
         sm.current = 'image'
-        if verify_video(file_clicked):
-            self.capture = VideoCapture(
-                os.path.join(self.path, file_clicked))
-            fps = self.capture.get(CAP_PROP_FPS)
-            fps = round(fps)
-            # old fps  > 1.0/30.0
-            fps = float(fps/1000)
-            print(fps)
-            self.count = 0
-            self.video_play_event = Clock.schedule_interval(
-                self.load_video, 1.0/30.0)
+        # if verify_video(file_clicked):
+        #     self.capture = VideoCapture(
+        #         os.path.join(self.path, file_clicked))
+        #     fps = self.capture.get(CAP_PROP_FPS)
+        #     fps = round(fps)
+        #     # old fps  > 1.0/30.0
+        #     fps = float(fps/1000)
+        #     print(fps)
+        #     self.count = 0
+        #     self.video_play_event = Clock.schedule_interval(
+        #         self.load_video, 1.0/30.0)
 
     def back_to_homescreen(self):
         sm = self.root.ids.screen_manager
         sm.remove_widget(sm.get_screen('image'))
         sm.current = "main-screen"
-        if verify_video(file_clicked):
-            self.video_play_event.cancel()
+        # if verify_video(file_clicked):
+        #     self.video_play_event.cancel()
 
     def refresh(self):
         self.root.ids.box.clear_widgets()
-        self.on_start()
+        Clock.schedule_once(lambda x: self.load_files(), 1)
+        # self.on_start()
 
     # def load_ui(self):
     #     time.sleep(1)
@@ -419,21 +474,19 @@ class Main(MDApp):
 
         # thread = threading.Thread(target=self.load_ui)
         # thread.start()
-        Clock.schedule_once(lambda x: self.load_files(), 2)
+        self.create_video_thumbnail()
 
     def build(self):
         if platform == 'android':
-            from android.permissions import request_permissions, Permissions
-            from android.storage import primary_external_storage_path
+            from android.permissions import request_permissions, Permission
             request_permissions(
-                [Permissions.READ_EXTERNAL_STORAGE, Permissions.WRITE_EXTERNAL_STORAGE])
-            sdcard = primary_external_storage_path()
-            self.path = os.path.join(sdcard, "WhatsApp/Media/.Statuses")
-            self.my_parent_folder = os.path.join(sdcard, "Status-Saver")
-            os.path.mkdirs(self.my_parent_folder)
-            self.thumbnail_path = os.path.join(
-                self.my_parent_folder, '.thumbnails')
-            os.path.mkdirs(self.thumbnail_path)
+                [Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE])
+            try:
+                os.mkdir(self.my_parent_folder)
+
+                os.mkdir(self.thumbnail_path)
+            except:
+                pass
 
         self.theme_cls.theme_style = 'Dark'
         return Builder.load_string(KV)
