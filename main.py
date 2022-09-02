@@ -315,6 +315,8 @@ class Main(MDApp):
             merge_list.remove(file_clicked)
         elif args[0] in ('play-video', 'view-image'):
             self.change_screen()
+        elif args[0] == 'link copied':
+            print('Hellow save')
 
     def add_to_mergelist(self):
         global merge_list
