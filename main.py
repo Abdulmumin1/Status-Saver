@@ -56,6 +56,7 @@ MDScreen:
         MDIconButton:
             id:back
             icon:"keyboard-backspace"
+            padding:10
             on_release:app.back_to_homescreen()
         Video:
 
@@ -63,7 +64,7 @@ MDScreen:
             source:root.image_tb
         MDBoxLayout:
             size_hint_max_y:60
-
+            padding:10
             MDIconButton:
                 id:share
                 icon:"share"
@@ -151,7 +152,7 @@ class Files(SmartTile):
     def __init__(self, datas, image, duration=None):
         super().__init__()
         self.orientation = 'vertical'
-        self.size_hint_min_y = 600
+        self.size_hint_min_y = 200
         # self.md_bg_color = (.33, .33, .33, .3)
         self.radius = [6, 6, 6, 6]
         # print('Created')
