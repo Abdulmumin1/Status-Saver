@@ -2,9 +2,17 @@
 
 mobile app that saves view whatsapp status media to your local storage.
 
-# compile
+# Features
 
- **Use Buildozer to compile the app**
+**Save photos and vidoes**
+
+**Merge clips into a single video** [<img src="https://img.shields.io/badge/under construction-blue.svg?logo=LOGO">]()
+
+**NOTE:** Currently support only photos saving
+
+# Compile
+
+**Use Buildozer to compile the app**
 
 ```bash
 
@@ -13,4 +21,3 @@ pip3 install buildozer
 ```
 
 <p align="left"> Follow buildozer <a href="https://buildozer.readthedocs.io/en/latest/">documentation </a>
-
