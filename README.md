@@ -18,7 +18,7 @@ mobile app that saves view whatsapp status media to your local storage.
 
 ```bash
 
-pip3 install buildozer
+pip install buildozer
 
 ```
 
