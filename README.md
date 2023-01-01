@@ -8,7 +8,7 @@ mobile app that saves view whatsapp status media to your local storage.
 
 **Save photos and vidoes**
 
-**Merge clips into a single video** [<img src="https://img.shields.io/badge/under construction-blue.svg?logo=LOGO">]()
+**Merge clips into a single video** [<img src="https://img.shields.io/badge/under construction 😅-blue.svg?logo=LOGO">]()
 
 **NOTE:** Currently support only photos saving
 
