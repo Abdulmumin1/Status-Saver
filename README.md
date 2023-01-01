@@ -22,4 +22,4 @@ pip install buildozer
 
 ```
 
-<p align="left"> Follow buildozer <a href="https://buildozer.readthedocs.io/en/latest/">documentation </a>
+<p align="left"> Read buildozer <a href="https://buildozer.readthedocs.io/en/latest/">documentation </a>
